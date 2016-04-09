@@ -1,9 +1,23 @@
 # Common routines for handling BGI scripts
 
 import struct
+import os
+import sys
+import errno
 
 import bgi_config
 import bgi_setup
+
+class BgiCustomException(Exception):
+	pass
+
+def makedir(dirname):
+	try:
+		os.makedirs(dirname)
+	except OSError as exc:
+		if exc.errno == errno.EEXIST and os.path.isdir(dirname):
+			pass
+		else: raise
 
 def escape(text):
 	text = text.replace('\n', '\\n')
@@ -53,25 +67,38 @@ def split_data(data):
 	text_bytes = data[section_boundary:]
 	return hdr_bytes, code_bytes, text_bytes, config
 
-def get_text_section(text_bytes):
-	strings = text_bytes.split(b'\x00')
-	addrs = []
-	pos = 0
-	for string in strings:
-		addrs.append(pos)
-		pos += len(string) + 1
-	texts = [x.decode(bgi_setup.senc) for x in strings]
+def get_text_section(text_bytes, decode_binstrings=True):
+	"""
+	return a dict (offset, string) or (offset, binstring)
+	"""
+	if len(text_bytes) == 0 or text_bytes == b'\x00':
+		return {}
+	binstrings = text_bytes.rstrip(b'\x00').split(b'\x00')
 	text_section = {}
-	for addr,text in zip(addrs,texts):
-		text_section[addr] = text
+	pos = 0
+	for binstring in binstrings:
+		raw_length = len(binstring) + 1
+		try:
+			text = binstring.decode(bgi_setup.senc) if decode_binstrings else binstring
+		except UnicodeDecodeError as exc:
+			with open('DEBUG.bin', 'wb') as out:
+				out.write(binstring)
+			raise BgiCustomException("ERROR decoding text @{0:04X} to @{1:04X} - {2}: {3}".format(pos, pos + raw_length,sys.exc_info()[0], exc))
+		text_section[pos] = text
+		pos += raw_length
+
 	return text_section
-	
-	type is config['STR_TYPE']
 	
 def check(code_bytes, pos, cfcn, cpos):
 	return cfcn is not None and get_dword(code_bytes, pos+cpos) == cfcn
 	
-def get_code_section(code_bytes, text_section, config):
+def get_code_section(code_bytes, text_bytes, config):
+	text_section = get_text_section(text_bytes, False)
+#	print("{} strings ({} bytes)".format(len(text_section), len(text_bytes)), file=sys.stderr)
+#	for addr in sorted(text_section):
+#		print("X00:{:04X}".format(addr), file=sys.stderr)
+	matched_pos = {}
+
 	pos = 4
 	code_size = len(code_bytes)
 	code_section = {}
@@ -84,8 +111,11 @@ def get_code_section(code_bytes, text_section, config):
 		text_addr = dword - code_size
 		# check if address is in text section and data type is string or file
 		if text_addr in text_section:
+			matched_pos[text_addr] = True
+#			print("REF:{:04X}".format(text_addr))
 			text = text_section[text_addr]
 			if type == config['STR_TYPE']:
+				text = text.decode(bgi_setup.senc)
 				if check(code_bytes, pos, config['TEXT_FCN'], config['NAME_POS']): # check if name (0140)
 					marker = 'N'
 					comment = 'NAME'
@@ -99,7 +129,7 @@ def get_code_section(code_bytes, text_section, config):
 					if name_dword != 0:
 						try:
 							name_addr = name_dword - code_size
-							name = text_section[name_addr]
+							name = text_section[name_addr].decode(bgi_setup.senc)
 							comment = 'TEXT 【%s】' % name
 						except KeyError:
 							comment = 'TEXT'
@@ -132,6 +162,7 @@ def get_code_section(code_bytes, text_section, config):
 				record = text, id, marker, comment
 				code_section[pos] = record
 			elif type == config['FILE_TYPE']:
+				text = text.decode(bgi_setup.senc)
 				marker = 'Z'
 				comment = 'OTHER'
 				if text not in others:
@@ -140,5 +171,10 @@ def get_code_section(code_bytes, text_section, config):
 				id = others[text]
 				record = text, id, marker, comment
 				code_section[pos] = record
+		else:
+			# missing text_addr in text_section
+			pass
 		pos += 4
-	return code_section
+#	print("%d pos" % len(matched_pos))
+	unmatched_strings = {key: value for key, value in text_section.items() if key not in matched_pos}
+	return code_section, unmatched_strings

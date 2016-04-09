@@ -1,10 +1,13 @@
 # General settings for BGI script tools
 
+project_name = 'itsusora'
+
 # Source language
 slang = 'ja'
 
-# Destination languages
-dlang = ['en']
+# Destination languages.
+# First item also used as reference language
+dlang = ['ja']
 
 # Insertion language
 ilang = 'en'
