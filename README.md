@@ -115,6 +115,7 @@ Step 5. Assemble BGI scripts ("Recompiling")
 
 - Edit *buriko_setup.py* and review the insertion settings
 - Copy each updated *.po into its respective subfolder
+- Edit *_4-as-all.ps1* and change the `$RootDir` variable to match your "project folder"
 - R-click on *_4-dis-all.ps1* and select "Run with Powershell".
 A "compiled" subfolder should appear in the "project folder", containing recompiled files (Scenario* files with no extension)
 

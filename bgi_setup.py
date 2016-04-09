@@ -1,4 +1,6 @@
-# General settings for BGI script tools
+"""
+User-settable settings for BGI script tools, used across the different Python scripts
+"""
 
 project_name = 'itsusora'
 
@@ -6,7 +8,6 @@ project_name = 'itsusora'
 slang = 'ja'
 
 # Destination languages.
-# First item also used as reference language
 dlang = ['ja']
 
 # Insertion language

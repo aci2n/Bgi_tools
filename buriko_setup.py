@@ -1,4 +1,6 @@
-# General settings for Buriko script tools
+"""
+User-settable settings for Buriko script tools, used across the different Python scripts
+"""
 
 project_name = 'itsusora'
 
