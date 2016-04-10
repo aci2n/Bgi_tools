@@ -74,7 +74,7 @@ def register_translations(indexedpo, code_dictionary):
         )
 
 
-def do_extra_diags(scriptpath, code_dictionary, orphan_binstrings):
+def do_extra_diags(scriptpath, code_dictionary, orph_bstrs):
     """
     Write extra (debug) files for analysis/diagnostics
     """
@@ -82,12 +82,12 @@ def do_extra_diags(scriptpath, code_dictionary, orphan_binstrings):
         dump_sequential(outz, code_dictionary, 'Z')
     if os.path.getsize(scriptpath + '.Z_strings') == 0:
         os.unlink(scriptpath + '.Z_strings')
-    if len(orphan_binstrings) > 0:
-        print("{} orphan strings written to separate .orphans file.".format(len(orphan_binstrings)),
+    if len(orph_bstrs) > 0:
+        print("{} orphan strings written to separate .orphans file.".format(len(orph_bstrs)),
               file=sys.stderr)
         with open(scriptpath + '.orphans', 'wb') as outo:
-            for addr in sorted(orphan_binstrings):
-                dump_bintext(outo, None, None, orphan_binstrings[addr], "MIS{:04X}".format(addr))
+            for addr in sorted(orph_bstrs):
+                dump_bintext(outo, None, None, orph_bstrs[addr], "MIS{:04X}".format(addr))
 
 
 def dump_script(scriptpath):
@@ -101,9 +101,8 @@ def dump_script(scriptpath):
     data = open(scriptpath, 'rb').read()
     _, code_bytes, text_bytes, config = bgi_common.split_data(data)
     try:
-        code_section, orphan_binstrings = bgi_common.get_code_section(code_bytes,
-                                                                      text_bytes,
-                                                                      config)
+        state = bgi_common.CodeSectionState()
+        code_section, orph_bstrs = state.get_code_section(code_bytes, text_bytes, config)
     except bgi_common.BgiCustomException as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
@@ -114,7 +113,7 @@ def dump_script(scriptpath):
     for lang in bgi_setup.dlang:
         idxpo.set_language(lang)
         idxpo.save(fpath='{}/{}/{}.{}'.format(bgi_setup.project_name, scriptname, lang, po_ext))
-    do_extra_diags(scriptpath, code_section, orphan_binstrings)
+    do_extra_diags(scriptpath, code_section, orph_bstrs)
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

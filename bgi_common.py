@@ -85,6 +85,30 @@ def get_dword(data, offset):
     return struct.unpack('<I', data)[0]
 
 
+def escape_private_sequence(data):
+    """
+    Escape a non-standard DBCS char outside of cp932 (not private area either)
+    Expects a 2-byte long bytes string
+    Example: b"\xFF\x03"
+    Returns: bytes
+    """
+    value = struct.unpack('>H', data)[0]
+    return '&#{:04X}'.format(value).encode("ASCII")  # len() of this string must be an even number
+
+
+def unescape_private_sequence(value):
+    """
+    `value` must be a bytes representation in target encoding bgi_setup.ienc
+    """
+    while True:
+        seqofs = value.find(b"&#")
+        if seqofs == -1:
+            break
+        hexval = value[seqofs + 2: seqofs + 6].decode('ASCII')
+        value = value[:seqofs] + bytes(bytearray.fromhex(hexval)) + value[seqofs + 6:]
+    return value
+
+
 def get_section_boundary(data):
     """
     Scans a BGI script buffer for the boundary before the text section
@@ -158,103 +182,136 @@ def check(code_bytes, pos, cfcn, cpos):
             cfcn == get_dword(code_bytes, pos + cpos))
 
 
-def get_code_section(code_bytes, text_bytes, config):
+def _get_escaped_text(text):
     """
-    Parses the BGI code buffer and associates offsets to misc info.
-    Also detects orphaned strings (unused strings in `text_bytes`)
-    Returns: tuple (dict {offset: RECORD}, dict {offset: bytes})
+    Escape all 0xFF.. sequences
+    Returns: bytes
     """
-    text_section = get_text_section(text_bytes, False)
-#    print("{} strings ({} bytes)".format(len(text_section), len(text_bytes)), file=sys.stderr)
-#    for addr in sorted(text_section):
-#        print("X00:{:04X}".format(addr), file=sys.stderr)
-    matched_pos = {}
+    if bgi_setup.is_jis_source():
+        while (text.find(b'\xFF') % 2) == 0:
+            pvofs = text.find(b'\xFF')
+            text = text[:pvofs] + \
+                escape_private_sequence(text[pvofs:pvofs + 2]) + \
+                text[pvofs + 2:]
+    return text
 
-    pos = 4
-    code_size = len(code_bytes)
-    code_section = {}
-    ids = {'N': 1, 'T': 1, 'Z': 1}
-    names = {}
-    others = {}
-    while pos < code_size:
-        optype = get_dword(code_bytes, pos - 4)
-        dword = get_dword(code_bytes, pos)
-        text_addr = dword - code_size
-        # check if address is in text section and data type is string or file
-        if text_addr in text_section:
-            matched_pos[text_addr] = True
-#            print("REF:{:04X}".format(text_addr))
-            text = text_section[text_addr]
-            if optype == config['STR_TYPE']:
-                text = text.decode(bgi_setup.senc)
-                if check(code_bytes, pos,
-                         config['TEXT_FCN'], config['NAME_POS']):  # check if name (0140)
-                    marker = 'N'
-                    comment = 'NAME'
-                    if text not in names:
-                        names[text] = ids[marker]
-                        ids[marker] += 1
-                    numid = names[text]
-                elif check(code_bytes, pos,
-                           config['TEXT_FCN'], config['TEXT_POS']):  # check if text (0140)
-                    marker = 'T'
-                    name_dword = get_dword(code_bytes,
-                                           pos + config['TEXT_POS'] - config['NAME_POS'])
-                    if name_dword != 0:
-                        try:
-                            name_addr = name_dword - code_size
-                            name = text_section[name_addr].decode(bgi_setup.senc)
-                            comment = 'TEXT 【%s】' % name
-                        except KeyError:
-                            comment = 'TEXT'
-                    else:
-                        comment = 'TEXT'
-                    numid = ids[marker]
-                    ids[marker] += 1
-                elif check(code_bytes, pos,
-                           config['RUBY_FCN'], config['RUBYK_POS']):  # check if ruby kanji (014b)
-                    marker = 'T'
-                    comment = 'TEXT RUBY KANJI'
-                    numid = ids[marker]
-                    ids[marker] += 1
-                elif check(code_bytes, pos,
-                           config['RUBY_FCN'],
-                           config['RUBYF_POS']):                     # check if ruby furigana (014b)
-                    marker = 'T'
-                    comment = 'TEXT RUBY FURIGANA'
-                    numid = ids[marker]
-                    ids[marker] += 1
-                elif check(code_bytes, pos,
-                           config['BKLG_FCN'], config['BKLG_POS']):  # check if backlog text (0143)
-                    marker = 'T'
-                    comment = 'TEXT BACKLOG'
-                    numid = ids[marker]
-                    ids[marker] += 1
-                else:
-                    marker = 'Z'
-                    comment = 'OTHER'
-                    if text not in others:
-                        others[text] = ids[marker]
-                        ids[marker] += 1
-                    numid = others[text]
-                record = text, numid, marker, comment
-                code_section[pos] = record
-            elif optype == config['FILE_TYPE']:
-                text = text.decode(bgi_setup.senc)
-                marker = 'Z'
-                comment = 'OTHER'
-                if text not in others:
-                    others[text] = ids[marker]
-                    ids[marker] += 1
-                numid = others[text]
-                record = text, numid, marker, comment
-                code_section[pos] = record
+
+class CodeSectionState:
+    """
+    Usage:
+      state = bgi_common.CodeSectionState()
+      a, b = state.get_code_section(code_bytes, text_bytes, config)
+    """
+
+    def __init__(self):
+        """
+        Create properties with dummy values
+        """
+        self._initialize_state(None, None, None)
+
+    def get_code_section(self, code_bytes, text_bytes, config):
+        """
+        Parses the BGI code buffer and associates offsets to misc info.
+        Also detects orphaned strings (unused strings in `text_bytes`)
+        Returns: tuple (dict {offset: RECORD}, dict {offset: bytes})
+        """
+        self._initialize_state(code_bytes, text_bytes, config)
+        code_section = {}
+        matched_pos = {}
+        pos = 4
+        while pos < len(code_bytes):
+            optype = get_dword(code_bytes, pos - 4)
+            dword = get_dword(code_bytes, pos)
+            text_addr = dword - len(code_bytes)
+            # check if address is in text section and data type is string or file
+            if text_addr in self.text_section:
+                matched_pos[text_addr] = True
+                text = self.text_section[text_addr]
+                if optype == config['STR_TYPE']:
+                    text = _get_escaped_text(text).decode(bgi_setup.senc)
+                    code_section[pos] = self._make_record_for_strtype(text, pos)
+                elif optype == config['FILE_TYPE']:
+                    text = text.decode(bgi_setup.senc)
+                    code_section[pos] = self._make_record_for_filetype(text)
+            pos += 4
+        unmatched_strings = {key: value for key, value
+                             in self.text_section.items()
+                             if key not in matched_pos}
+        return code_section, unmatched_strings
+
+    def _initialize_state(self, code_bytes, text_bytes, config):
+        self.code_bytes = code_bytes
+        self.config = config
+        self.text_section = None
+        if text_bytes is not None:
+            self.text_section = get_text_section(text_bytes, False)
+        self.ids = {'N': 1, 'T': 1, 'Z': 1}
+        self.names = {}
+        self.others = {}
+
+    def _get_id_and_increment(self, markertype):
+        numid = self.ids[markertype]
+        self.ids[markertype] += 1
+        return numid
+
+    def _make_record_for_strtype(self, text, pos):
+        """
+        Handle a subcase of get_code_section()
+        """
+        if check(self.code_bytes, pos,
+                 self.config['TEXT_FCN'], self.config['NAME_POS']):  # check if name (0140)
+            marker = 'N'
+            comment = 'NAME'
+            if text not in self.names:
+                self.names[text] = self._get_id_and_increment(marker)
+            numid = self.names[text]
+        elif check(self.code_bytes, pos,
+                   self.config['TEXT_FCN'], self.config['TEXT_POS']):  # check if text (0140)
+            marker = 'T'
+            name_dword = get_dword(self.code_bytes,
+                                   pos + self.config['TEXT_POS'] - self.config['NAME_POS'])
+            if name_dword != 0:
+                try:
+                    name_addr = name_dword - len(self.code_bytes)
+                    name = self.text_section[name_addr].decode(bgi_setup.senc)
+                    comment = 'TEXT 【%s】' % name
+                except KeyError:
+                    comment = 'TEXT'
+            else:
+                comment = 'TEXT'
+            numid = self._get_id_and_increment(marker)
+        elif check(self.code_bytes, pos,
+                   self.config['RUBY_FCN'], self.config['RUBYK_POS']):  # check if ruby kanji (014b)
+            marker = 'T'
+            comment = 'TEXT RUBY KANJI'
+            numid = self._get_id_and_increment(marker)
+        elif check(self.code_bytes, pos,
+                   self.config['RUBY_FCN'],
+                   self.config['RUBYF_POS']):                     # check if ruby furigana (014b)
+            marker = 'T'
+            comment = 'TEXT RUBY FURIGANA'
+            numid = self._get_id_and_increment(marker)
+        elif check(self.code_bytes, pos,
+                   self.config['BKLG_FCN'],
+                   self.config['BKLG_POS']):                      # check if backlog text (0143)
+            marker = 'T'
+            comment = 'TEXT BACKLOG'
+            numid = self._get_id_and_increment(marker)
         else:
-            # missing text_addr in text_section
-            pass
-        pos += 4
-#    print("%d pos" % len(matched_pos))
-    unmatched_strings = {key: value for key, value
-                         in text_section.items()
-                         if key not in matched_pos}
-    return code_section, unmatched_strings
+            marker = 'Z'
+            comment = 'OTHER'
+            if text not in self.others:
+                self.others[text] = self._get_id_and_increment(marker)
+            numid = self.others[text]
+        return text, numid, marker, comment  # record
+
+    def _make_record_for_filetype(self, text):
+        """
+        Handle a subcase of get_code_section()
+        """
+        marker = 'Z'
+        comment = 'OTHER'
+        if text not in self.others:
+            self.others[text] = self._get_id_and_increment(marker)
+        numid = self.others[text]
+        return text, numid, marker, comment  # record

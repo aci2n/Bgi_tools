@@ -23,7 +23,7 @@ def parse_instr(line, linenum, inputpo):
     using given .po resources
     Returns: tuple (str, array, set)
     """
-    strings = set([])
+    strings = []
     fcn, argstr = asdis.re_instr.match(line).groups()
     argstr = argstr.strip()
     if argstr:
@@ -57,7 +57,7 @@ def parse_instr(line, linenum, inputpo):
                 del args[0]
                 string_to_add = args[0]
         if string_to_add is not None:
-            strings.add(string_to_add)
+            strings.append(string_to_add)
     else:
         args = []
     return fcn, args, strings
@@ -66,16 +66,16 @@ def parse_instr(line, linenum, inputpo):
 def parse(asmtxt, inputpo):
     """
     Parse the .bsd disassembly into structured data using given .po resources
-    Returns: tuple(array of lists, dict, array of str, bytes, dict)
+    Returns: tuple(array of lists, dict, array of bytes, bytes, dict)
     - instrs: list is (fcn:str, args:array, pos:integer, index:integer)
     - symbols: dict { str: integer } for labels and resources
-    - texts: strings in text section
+    - bintexts: strings in text section, encoded
     - hdrtext: header identifier
     - defines: metadata defined in bsd header
     """
     instrs = []
     symbols = {}
-    text_set = set()
+    texts = []
     pos = 0
     hdrtext = None
     defines = {}
@@ -96,7 +96,7 @@ def parse(asmtxt, inputpo):
         elif asdis.re_instr.match(line):
             fcn, args, strings = parse_instr(line, lineidx + 1, inputpo)
             record = fcn, args, pos, lineidx + 1
-            text_set.update(strings)
+            texts.extend(strings)
             instrs.append(record)
             try:
                 opcode = bgiop.rops[fcn]
@@ -106,13 +106,15 @@ def parse(asmtxt, inputpo):
         else:
             raise asdis.InvalidInstructionFormat(
                 'Invalid instruction format @ line {:d}'.format(lineidx + 1))
-    texts = []
-    for text in text_set:
+    bintexts = []
+    for text in texts:
         symbols[text] = pos
         text = asdis.unescape(text[1:-1])
-        texts.append(text)
-        pos += len(text.encode(buriko_setup.ienc)) + 1
-    return instrs, symbols, texts, hdrtext, defines
+        itext = text.encode(buriko_setup.ienc)
+        itext = buriko_common.unescape_private_sequence(itext)
+        bintexts.append(itext)
+        pos += len(itext) + 1
+    return instrs, symbols, bintexts, hdrtext, defines
 
 
 def out_hdr(asmoutfile, hdrtext, defines, symbols):
@@ -133,7 +135,7 @@ def out_hdr(asmoutfile, hdrtext, defines, symbols):
     asmoutfile.write(b'\x00' * padding)
 
 
-def out(asmoutfile, instrs, symbols, texts, hdrtext, defines):
+def out(asmoutfile, instrs, symbols, bintexts, hdrtext, defines):
     """
     Write to a binary file buffer `asmoutfile` using data gathered from parse()
     """
@@ -149,8 +151,8 @@ def out(asmoutfile, instrs, symbols, texts, hdrtext, defines):
                 asmoutfile.write(struct.pack('<i', int(arg, 16)))
             elif arg:
                 asmoutfile.write(struct.pack('<i', int(arg)))
-    for text in texts:
-        asmoutfile.write(text.encode(buriko_setup.ienc) + b'\x00')
+    for bintext in bintexts:
+        asmoutfile.write(bintext + b'\x00')
 
 
 def asm(asmpath):

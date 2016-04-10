@@ -29,6 +29,19 @@ def makedir(dirname):
             raise
 
 
+def unescape_private_sequence(value):
+    """
+    `value` must be a bytes representation in target encoding bgi_setup.ienc
+    """
+    while True:
+        seqofs = value.find(b"&#")
+        if seqofs == -1:
+            break
+        hexval = value[seqofs + 2: seqofs + 6].decode('ASCII')
+        value = value[:seqofs] + bytes(bytearray.fromhex(hexval)) + value[seqofs + 6:]
+    return value
+
+
 def get_section_boundary(data):
     """
     Scans a BGI script buffer for the boundary before the text section
