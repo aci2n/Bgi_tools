@@ -25,7 +25,7 @@ def clear_offsets():
 def get_string(code, addr, defines, *args):
     pos0 = args[0]
     pos1 = code.find(b'\x00', pos0)
-    string = code[pos0:pos1].decode(buriko_setup.senc)
+    string = buriko_common.get_escaped_text(code[pos0:pos1]).decode(buriko_setup.senc)
     string = asdis.escape(string)
     return (string,)
 

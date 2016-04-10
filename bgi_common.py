@@ -96,6 +96,20 @@ def escape_private_sequence(data):
     return '&#{:04X}'.format(value).encode("ASCII")  # len() of this string must be an even number
 
 
+def get_escaped_text(text):
+    """
+    Escape all 0xFF.. sequences
+    Returns: bytes
+    """
+    if bgi_setup.is_jis_source():
+        while (text.find(b'\xFF') % 2) == 0:
+            pvofs = text.find(b'\xFF')
+            text = text[:pvofs] + \
+                escape_private_sequence(text[pvofs:pvofs + 2]) + \
+                text[pvofs + 2:]
+    return text
+
+
 def unescape_private_sequence(value):
     """
     `value` must be a bytes representation in target encoding bgi_setup.ienc
@@ -182,20 +196,6 @@ def check(code_bytes, pos, cfcn, cpos):
             cfcn == get_dword(code_bytes, pos + cpos))
 
 
-def _get_escaped_text(text):
-    """
-    Escape all 0xFF.. sequences
-    Returns: bytes
-    """
-    if bgi_setup.is_jis_source():
-        while (text.find(b'\xFF') % 2) == 0:
-            pvofs = text.find(b'\xFF')
-            text = text[:pvofs] + \
-                escape_private_sequence(text[pvofs:pvofs + 2]) + \
-                text[pvofs + 2:]
-    return text
-
-
 class CodeSectionState:
     """
     Usage:
@@ -228,7 +228,7 @@ class CodeSectionState:
                 matched_pos[text_addr] = True
                 text = self.text_section[text_addr]
                 if optype == config['STR_TYPE']:
-                    text = _get_escaped_text(text).decode(bgi_setup.senc)
+                    text = get_escaped_text(text).decode(bgi_setup.senc)
                     code_section[pos] = self._make_record_for_strtype(text, pos)
                 elif optype == config['FILE_TYPE']:
                     text = text.decode(bgi_setup.senc)

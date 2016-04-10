@@ -4,6 +4,9 @@ Common routines for handling Buriko scripts
 
 import os
 import errno
+import struct
+
+import buriko_setup
 
 
 class BurikoCustomException(Exception):
@@ -27,6 +30,31 @@ def makedir(dirname):
             pass
         else:
             raise
+
+
+def escape_private_sequence(data):
+    """
+    Escape a non-standard DBCS char outside of cp932 (not private area either)
+    Expects a 2-byte long bytes string
+    Example: b"\xFF\x03"
+    Returns: bytes
+    """
+    value = struct.unpack('>H', data)[0]
+    return '&#{:04X}'.format(value).encode("ASCII")  # len() of this string must be an even number
+
+
+def get_escaped_text(text):
+    """
+    Escape all 0xFF.. sequences
+    Returns: bytes
+    """
+    if buriko_setup.is_jis_source():
+        while (text.find(b'\xFF') % 2) == 0:
+            pvofs = text.find(b'\xFF')
+            text = text[:pvofs] + \
+                escape_private_sequence(text[pvofs:pvofs + 2]) + \
+                text[pvofs + 2:]
+    return text
 
 
 def unescape_private_sequence(value):
