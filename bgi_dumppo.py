@@ -59,14 +59,32 @@ def register_translations(indexedpo, code_dictionary):
     Add translations to PO file based on analysis of code section
     Returns: None
     """
+    voice = None
+    prev_text = None
+
     for addr in sorted(code_dictionary):
         text, _, marker, comment = code_dictionary[addr]
+
+        if text == "_PlayVoice":
+            voice = prev_text
+       
+        prev_text = text
+
         if marker == 'N':
             prefillmsg = "NAME:{}".format(bgi_common.escape(text))
         elif marker == 'Z':
             continue  # not processed here
         else:
             prefillmsg = bgi_common.escape(text) if bgi_setup.dcopy else ''
+
+            if voice != None:
+                indexedpo.add(
+                    bgi_common.escape(voice),
+                    msgstr=prefillmsg,
+                    comment='VOICE'
+                )
+                voice = None
+
         indexedpo.add(
             bgi_common.escape(text),
             msgstr=prefillmsg,
