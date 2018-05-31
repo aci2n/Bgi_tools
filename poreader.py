@@ -1,6 +1,8 @@
 import polib
 import glob
 import sys
+import os.path
+import json
 
 class Reader():
     def read(self, directory):
@@ -16,9 +18,16 @@ class Reader():
                 voiceEntries = filter(lambda entry: entry.comment == 'VOICE', entries)
                 
                 for voiceEntry in voiceEntries:
-                    voiceDict[voiceEntry.msgctxt] = voiceEntry.msgstr
+                    voiceDict[voiceEntry.msgctxt + '.ogg'] = voiceEntry.msgstr
 
         return voiceDict
 
+    def main(self, directory):
+        entries = self.read(directory)
+        file = os.path.join(directory, 'entries.json')
+
+        with open(file, 'w') as stream:
+            json.dump(entries, stream)
+
 if __name__ == '__main__' and len(sys.argv) == 2:
-    print(Reader().read(sys.argv[1]))
+    Reader().main(sys.argv[1])

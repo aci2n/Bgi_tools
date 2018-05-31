@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/bgi_dumppo.py",
             "stopOnEntry": true,
             "args": [
-                "input/*"
+                "${workspaceFolder}/input/*"
             ]
         },
         {
@@ -21,7 +21,7 @@
             "program": "${workspaceFolder}/poreader.py",
             "stopOnEntry": true,
             "args": [
-                "itsusora"
+                "${workspaceFolder}/itsusora"
             ]
         }
     ]

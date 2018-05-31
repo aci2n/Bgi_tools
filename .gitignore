@@ -1,2 +1,4 @@
 *.pyc
 itsusora/
+input/*.Z_strings
+input/*.orphans
