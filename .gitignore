@@ -1,4 +1,5 @@
 *.pyc
 itsusora/
-input/*.Z_strings
-input/*.orphans
+*.Z_strings
+*.orphans
+aiyoku_voice/

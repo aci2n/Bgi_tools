@@ -64,6 +64,7 @@ def register_translations(indexedpo, code_dictionary):
 
     for addr in sorted(code_dictionary):
         text, _, marker, comment = code_dictionary[addr]
+        print(code_dictionary[addr])
 
         if text == "_PlayVoice":
             voice = prev_text
@@ -90,8 +91,7 @@ def register_translations(indexedpo, code_dictionary):
             msgstr=prefillmsg,
             comment=comment
         )
-
-
+        
 def do_extra_diags(scriptpath, code_dictionary, orph_bstrs):
     """
     Write extra (debug) files for analysis/diagnostics
