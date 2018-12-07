@@ -5,6 +5,7 @@ Dumps a BGI script to GetText PO
 import glob
 import os
 import sys
+import re
 
 import bgi_common
 import bgi_po
@@ -64,11 +65,14 @@ def register_translations(indexedpo, code_dictionary):
 
     for addr in sorted(code_dictionary):
         text, _, marker, comment = code_dictionary[addr]
+       
         print(code_dictionary[addr])
 
         if text == "_PlayVoice":
             voice = prev_text
-       
+        elif re.match(r"^aiy\d{9}$", text):
+            voice = text
+
         prev_text = text
 
         if marker == 'N':
